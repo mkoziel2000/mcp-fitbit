@@ -7,7 +7,7 @@
 [![npm version](https://badge.fury.io/js/mcp-fitbit.svg)](https://badge.fury.io/js/mcp-fitbit)
 [![npm downloads](https://img.shields.io/npm/dm/mcp-fitbit.svg)](https://www.npmjs.com/package/mcp-fitbit)
 
-> Connect AI assistants to your Fitbit health data
+> Connect AI assistants to your Fitbit health data (includes heart rate variability - HRV)
 
 Give your AI assistant access to your Fitbit data for personalized health insights, trend analysis, and automated tracking. Works with Claude Desktop and other MCP-compatible AI tools.
 
@@ -16,7 +16,7 @@ Give your AI assistant access to your Fitbit data for personalized health insigh
 🏃 **Exercise & Activities** - Get detailed workout logs and activity data  
 😴 **Sleep Analysis** - Retrieve sleep patterns and quality metrics  
 ⚖️ **Weight Tracking** - Access weight trends over time  
-❤️ **Heart Rate Data** - Monitor heart rate patterns and zones  
+❤️ **Heart Rate Data** - Monitor heart rate patterns, zones and variability  
 🍎 **Nutrition Logs** - Review food intake, calories, and macros  
 👤 **Profile Info** - Access basic Fitbit profile details
 
