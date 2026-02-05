@@ -1,18 +1,19 @@
 {
-  "name": "mcp-fitbit",
+  "name": "@mkoziel2000/mcp-fitbit",
   "version": "1.0.1",
   "type": "module",
   "main": "./build/index.js",
   "bin": {
-    "mcp-fitbit": "./build/index.js"
+    "mcp-fitbit": "./build/index.js",
+    "mkoziel2000-mcp-fitbit": "./build/index.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TheDigitalNinja/mcp-fitbit.git"
+    "url": "https://github.com/mkoziel2000/mcp-fitbit.git"
   },
-  "homepage": "https://TheDigital.Ninja",
+  "homepage": "https://github.com/mkoziel2000/mcp-fitbit",
   "bugs": {
-    "url": "https://github.com/TheDigitalNinja/mcp-fitbit/issues"
+    "url": "https://github.com/mkoziel2000/mcp-fitbit/issues"
   },
   "scripts": {
     "test": "vitest run",
@@ -40,9 +41,9 @@
     "ai-assistant",
     "typescript"
   ],
-  "author": "Russell \"TheDigitalNinja\" Perkins",
+  "author": "mkoziel2000",
   "license": "MIT",
-  "description": "Model Context Protocol (MCP) server for accessing Fitbit health and fitness data. Connect AI assistants like Claude to your Fitbit data for personalized health insights.",
+  "description": "Fork of TheDigitalNinja's mcp-fitbit with the addition of the Heart Rate Variability (HRV) tool. MCP server for accessing Fitbit health and fitness data. Connect AI assistants like Claude to your Fitbit data for personalized health insights.",
   "files": [
     "build/",
     "README.md",
