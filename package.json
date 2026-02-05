@@ -1,5 +1,5 @@
 {
-  "name": "@mkoziel2000/mcp-fitbit",
+  "name": "@einlogic/mcp-fitbit",
   "version": "1.0.1",
   "type": "module",
   "main": "./build/index.js",
