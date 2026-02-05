@@ -23,6 +23,7 @@ import { registerDailyActivityTool } from './daily-activity.js';
 import { registerActivityGoalsTool } from './activity-goals.js';
 import { registerActivityTimeSeriesTool } from './activity-timeseries.js';
 import { registerAzmTimeSeriesTool } from './azm-timeseries.js';
+import { registerHrvTools } from './hrv.js';
 // Import utilities
 import './utils.js';
 
@@ -84,6 +85,7 @@ registerDailyActivityTool(server, getAccessToken);
 registerActivityGoalsTool(server, getAccessToken);
 registerActivityTimeSeriesTool(server, getAccessToken);
 registerAzmTimeSeriesTool(server, getAccessToken);
+registerHrvTools(server, getAccessToken);
 
 // --- Main Application Entry Point ---
 async function main() {

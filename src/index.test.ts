@@ -16,6 +16,7 @@ const mockRegisterDailyActivityTool = vi.fn();
 const mockRegisterActivityGoalsTool = vi.fn();
 const mockRegisterActivityTimeSeriesTool = vi.fn();
 const mockRegisterAzmTimeSeriesTool = vi.fn();
+const mockRegisterHrvTools = vi.fn();
 
 const mockMcpServerInstance = {
   connect: vi.fn().mockResolvedValue(undefined),
@@ -43,6 +44,7 @@ vi.doMock('./daily-activity.js', () => ({ registerDailyActivityTool: mockRegiste
 vi.doMock('./activity-goals.js', () => ({ registerActivityGoalsTool: mockRegisterActivityGoalsTool }));
 vi.doMock('./activity-timeseries.js', () => ({ registerActivityTimeSeriesTool: mockRegisterActivityTimeSeriesTool }));
 vi.doMock('./azm-timeseries.js', () => ({ registerAzmTimeSeriesTool: mockRegisterAzmTimeSeriesTool }));
+vi.doMock('./hrv.js', () => ({ registerHrvTools: mockRegisterHrvTools }));
 
 vi.doMock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   McpServer: mockMcpServerConstructor,
@@ -140,6 +142,7 @@ describe('index.ts script execution', () => {
     expect(mockRegisterActivityGoalsTool).toHaveBeenCalledWith(mockMcpServerInstance, mockGetAccessToken);
     expect(mockRegisterActivityTimeSeriesTool).toHaveBeenCalledWith(mockMcpServerInstance, mockGetAccessToken);
     expect(mockRegisterAzmTimeSeriesTool).toHaveBeenCalledWith(mockMcpServerInstance, mockGetAccessToken);
+    expect(mockRegisterHrvTools).toHaveBeenCalledWith(mockMcpServerInstance, mockGetAccessToken);
   });
 
   describe('main function execution', () => {
