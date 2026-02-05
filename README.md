@@ -148,6 +148,7 @@ Both options open the **MCP Inspector** at `http://localhost:5173` where you can
 | `get_nutrition` | Individual nutrient over time | `resource`, `period`, optional `date` |
 | `get_nutrition_by_date_range` | Individual nutrient for date range | `resource`, `startDate`, `endDate` |
 | `get_profile` | User profile information | None |
+| `get_hrv` |  Daily RMSSD and deep sleep RMSSD (HRV) | None |
 
 **Nutrition resources:** `caloriesIn`, `water`, `protein`, `carbs`, `fat`, `fiber`, `sodium`
 
