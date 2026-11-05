@@ -1,337 +1,411 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
-  makeFitbitRequest,
+  makeGoogleHealthRequest,
+  handleGoogleHealthCall,
   createErrorResponse,
   createSuccessResponse,
   createNoDataResponse,
   registerTool,
-  handleFitbitApiCall,
+  buildRangeFilter,
+  buildDailyRollUpBody,
+  dataPointsPath,
+  toFilterName,
+  nextDate,
+  listDataPoints,
+  dailyRollUp,
+  GoogleHealthApiError,
   type ToolConfig,
-  type ToolResponseStructure
 } from './utils.js';
-import { FITBIT_API_VERSIONS, ERROR_MESSAGES } from './config.js';
+import { GOOGLE_HEALTH_API_BASE, ERROR_MESSAGES } from './config.js';
 
-// Mock global fetch
 global.fetch = vi.fn();
+const fetchMock = () => fetch as ReturnType<typeof vi.fn>;
 
 describe('Utility Functions', () => {
-  let mockGetAccessTokenFn: ReturnType<typeof vi.fn>;
+  let getToken: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    mockGetAccessTokenFn = vi.fn();
+    getToken = vi.fn().mockResolvedValue('test_token');
     vi.clearAllMocks();
+    getToken.mockResolvedValue('test_token');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    vi.resetAllMocks();
+    vi.restoreAllMocks();
   });
 
-  describe('makeFitbitRequest', () => {
-    it('should make a successful request and return JSON data', async () => {
-      const mockData = { foo: 'bar' };
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+  describe('makeGoogleHealthRequest', () => {
+    it('makes a GET request with bearer auth and returns JSON', async () => {
+      fetchMock().mockResolvedValue({
         ok: true,
-        json: async () => mockData,
-        status: 200
+        status: 200,
+        json: async () => ({ foo: 'bar' }),
       });
 
-      const result = await makeFitbitRequest('test/endpoint', mockGetAccessTokenFn);
-      expect(result).toEqual(mockData);
-      expect(fetch).toHaveBeenCalledWith(
-        `${FITBIT_API_VERSIONS.V1}/user/-/test/endpoint`,
-        expect.any(Object)
+      const result = await makeGoogleHealthRequest(
+        'users/me/profile',
+        getToken
       );
+      expect(result).toEqual({ foo: 'bar' });
+      const [url, init] = fetchMock().mock.calls[0];
+      expect(url).toBe(`${GOOGLE_HEALTH_API_BASE}/users/me/profile`);
+      expect(init.method).toBe('GET');
+      expect(init.headers.Authorization).toBe('Bearer test_token');
+      expect(init.body).toBeUndefined();
     });
 
-    it('should handle endpoint with leading slash', async () => {
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    it('does not add a /user/-/ prefix and strips a leading slash', async () => {
+      fetchMock().mockResolvedValue({
         ok: true,
+        status: 200,
         json: async () => ({}),
-        status: 200
       });
-
-      await makeFitbitRequest('/test/endpoint', mockGetAccessTokenFn);
-      expect(fetch).toHaveBeenCalledWith(
-        `${FITBIT_API_VERSIONS.V1}/user/-/test/endpoint`,
-        expect.any(Object)
+      await makeGoogleHealthRequest('/users/me/identity', getToken);
+      expect(fetchMock().mock.calls[0][0]).toBe(
+        `${GOOGLE_HEALTH_API_BASE}/users/me/identity`
       );
     });
 
-    it('should return null if no access token is available', async () => {
-      mockGetAccessTokenFn.mockResolvedValue(null);
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('encodes query parameters and skips undefined values', async () => {
+      fetchMock().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      });
+      await makeGoogleHealthRequest(
+        'users/me/dataTypes/steps/dataPoints',
+        getToken,
+        {
+          query: { filter: 'a >= "x"', pageSize: 5, pageToken: undefined },
+        }
+      );
+      expect(fetchMock().mock.calls[0][0]).toBe(
+        `${GOOGLE_HEALTH_API_BASE}/users/me/dataTypes/steps/dataPoints?filter=a%20%3E%3D%20%22x%22&pageSize=5`
+      );
+    });
 
-      const result = await makeFitbitRequest('test/endpoint', mockGetAccessTokenFn);
+    it('sends a JSON body with Content-Type on POST', async () => {
+      fetchMock().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      });
+      await makeGoogleHealthRequest('p', getToken, {
+        method: 'POST',
+        body: { a: 1 },
+      });
+      const init = fetchMock().mock.calls[0][1];
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe('{"a":1}');
+      expect(init.headers['Content-Type']).toBe('application/json');
+    });
+
+    it('returns null when no access token is available', async () => {
+      getToken.mockResolvedValue(null);
+      const result = await makeGoogleHealthRequest('p', getToken);
       expect(result).toBeNull();
       expect(fetch).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(`Error: ${ERROR_MESSAGES.NO_ACCESS_TOKEN}`);
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should return null and log error on API error (non-2xx status)', async () => {
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-        ok: false,
-        status: 500,
-        text: async () => 'Internal Server Error'
-      });
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const result = await makeFitbitRequest('test/endpoint', mockGetAccessTokenFn);
-      expect(result).toBeNull();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Fitbit API Error! Status: 500')
+      expect(console.error).toHaveBeenCalledWith(
+        `Error: ${ERROR_MESSAGES.NO_ACCESS_TOKEN}`
       );
-      consoleErrorSpy.mockRestore();
     });
-    
-    it('should log token expired message on 401 error', async () => {
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+
+    it('throws GoogleHealthApiError on non-retryable errors', async () => {
+      fetchMock().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () => 'Forbidden',
+      });
+      await expect(
+        makeGoogleHealthRequest('p', getToken)
+      ).rejects.toMatchObject({
+        name: 'GoogleHealthApiError',
+        status: 403,
+        body: 'Forbidden',
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs a token message on 401', async () => {
+      fetchMock().mockResolvedValue({
         ok: false,
         status: 401,
-        text: async () => 'Unauthorized'
+        text: async () => 'Unauthorized',
       });
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      await makeFitbitRequest('test/endpoint', mockGetAccessTokenFn);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(ERROR_MESSAGES.TOKEN_EXPIRED);
-      consoleErrorSpy.mockRestore();
+      await expect(
+        makeGoogleHealthRequest('p', getToken)
+      ).rejects.toBeInstanceOf(GoogleHealthApiError);
+      expect(console.error).toHaveBeenCalledWith(ERROR_MESSAGES.TOKEN_EXPIRED);
     });
 
-    it('should return an empty object for 204 No Content response', async () => {
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    it('retries 429 and succeeds', async () => {
+      fetchMock()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          text: async () => 'slow down',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: 1 }),
+        });
+      const result = await makeGoogleHealthRequest('p', getToken, {
+        retryBaseDelayMs: 0,
+      });
+      expect(result).toEqual({ ok: 1 });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('gives up after max retries on 504', async () => {
+      fetchMock().mockResolvedValue({
+        ok: false,
+        status: 504,
+        text: async () => 'timeout',
+      });
+      await expect(
+        makeGoogleHealthRequest('p', getToken, { retryBaseDelayMs: 0 })
+      ).rejects.toMatchObject({ status: 504 });
+      expect(fetch).toHaveBeenCalledTimes(4); // initial + 3 retries
+    });
+
+    it('returns an empty object for 204 responses', async () => {
+      fetchMock().mockResolvedValue({
         ok: true,
         status: 204,
-        json: async () => null, // Should not be called
-        text: async () => ''
+        json: async () => null,
       });
-
-      const result = await makeFitbitRequest('test/endpoint', mockGetAccessTokenFn);
-      expect(result).toEqual({});
+      expect(await makeGoogleHealthRequest('p', getToken)).toEqual({});
     });
 
-    it('should return null and log error on network error (fetch throws)', async () => {
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network failure'));
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const result = await makeFitbitRequest('test/endpoint', mockGetAccessTokenFn);
-      expect(result).toBeNull();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Error making Fitbit request'),
-        expect.any(Error)
-      );
-      consoleErrorSpy.mockRestore();
-    });
-
-    it('should use provided apiBase', async () => {
-      const mockData = { foo: 'bar' };
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-        ok: true,
-        json: async () => mockData,
-        status: 200
-      });
-      const customApiBase = 'https://api.fitbit.com/1.2';
-
-      await makeFitbitRequest('test/endpoint', mockGetAccessTokenFn, customApiBase);
-      expect(fetch).toHaveBeenCalledWith(
-        `${customApiBase}/user/-/test/endpoint`,
-        expect.any(Object)
+    it('rethrows network errors', async () => {
+      fetchMock().mockRejectedValue(new Error('Network failure'));
+      await expect(makeGoogleHealthRequest('p', getToken)).rejects.toThrow(
+        'Network failure'
       );
     });
   });
 
-  describe('Response Helper Functions', () => {
-    it('createErrorResponse should format error message correctly', () => {
-      const message = 'Test error';
-      const response = createErrorResponse(message);
-      expect(response).toEqual({
-        content: [{ type: 'text', text: message }],
-        isError: true
-      });
+  describe('helpers', () => {
+    it('builds data point paths and filter names', () => {
+      expect(dataPointsPath('body-fat')).toBe(
+        'users/me/dataTypes/body-fat/dataPoints'
+      );
+      expect(dataPointsPath('sleep', ':reconcile')).toBe(
+        'users/me/dataTypes/sleep/dataPoints:reconcile'
+      );
+      expect(toFilterName('body-fat')).toBe('body_fat');
     });
 
-    it('createSuccessResponse should format success data correctly', () => {
-      const data = { result: 'success' };
-      const response = createSuccessResponse(data);
-      expect(response).toEqual({
-        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
-      });
+    it('builds range filters (end exclusive, optional)', () => {
+      expect(buildRangeFilter('f', 'a')).toBe('f >= "a"');
+      expect(buildRangeFilter('f', 'a', 'b')).toBe('f >= "a" AND f < "b"');
     });
 
-    it('createNoDataResponse should format no data message correctly', () => {
-      const context = 'test context';
-      const response = createNoDataResponse(context);
-      expect(response).toEqual({
-        content: [{ type: 'text', text: `${ERROR_MESSAGES.NO_DATA_FOUND} ${context}.` }]
+    it('computes the next date across month and year boundaries', () => {
+      expect(nextDate('2026-03-04')).toBe('2026-03-05');
+      expect(nextDate('2026-02-28')).toBe('2026-03-01');
+      expect(nextDate('2026-12-31')).toBe('2027-01-01');
+    });
+
+    it('builds a daily roll-up body', () => {
+      expect(buildDailyRollUpBody('2026-07-28', '2026-07-30')).toEqual({
+        range: {
+          start: { date: { year: 2026, month: 7, day: 28 }, time: {} },
+          end: { date: { year: 2026, month: 7, day: 30 }, time: {} },
+        },
+        windowSizeDays: 1,
+      });
+      expect(
+        buildDailyRollUpBody('2026-07-28', '2026-07-30', {
+          windowSizeDays: 2,
+          dataSourceFamily: 'users/me/dataSourceFamilies/google-wearables',
+        })
+      ).toMatchObject({
+        windowSizeDays: 2,
+        dataSourceFamily: 'users/me/dataSourceFamilies/google-wearables',
+      });
+    });
+  });
+
+  describe('Response helpers', () => {
+    it('formats error, success and no-data responses', () => {
+      expect(createErrorResponse('x')).toEqual({
+        content: [{ type: 'text', text: 'x' }],
+        isError: true,
+      });
+      expect(createSuccessResponse({ a: 1 })).toEqual({
+        content: [{ type: 'text', text: JSON.stringify({ a: 1 }, null, 2) }],
+      });
+      expect(createNoDataResponse('ctx')).toEqual({
+        content: [
+          { type: 'text', text: `${ERROR_MESSAGES.NO_DATA_FOUND} ctx.` },
+        ],
       });
     });
   });
 
   describe('registerTool', () => {
-    it('should call server.tool with correct parameters', () => {
-      const mockServer = { tool: vi.fn() } as unknown as McpServer;
-      const mockHandler = vi.fn();
-      const toolConfig: ToolConfig = {
-        name: 'test_tool',
-        description: 'A test tool',
+    it('calls server.tool with the config', () => {
+      const server = { tool: vi.fn() } as unknown as McpServer;
+      const config: ToolConfig = {
+        name: 't',
+        description: 'd',
         parametersSchema: {},
-        handler: mockHandler
+        handler: vi.fn(),
       };
-
-      registerTool(mockServer, toolConfig);
-
-      expect(mockServer.tool).toHaveBeenCalledWith(
-        toolConfig.name,
-        toolConfig.description,
-        toolConfig.parametersSchema,
-        toolConfig.handler
-      );
+      registerTool(server, config);
+      expect(server.tool).toHaveBeenCalledWith('t', 'd', {}, config.handler);
     });
   });
 
-  describe('handleFitbitApiCall', () => {
-    let mockMakeFitbitRequest: ReturnType<typeof vi.fn>;
-    
-    // We need to mock makeFitbitRequest from the same module.
-    // This is a bit tricky with ES modules and Vitest.
-    // A common way is to re-import the module and spy on the specific function.
-    // However, for simplicity here, we'll assume makeFitbitRequest is tested
-    // and focus on handleFitbitApiCall's logic around it.
-    // For a more robust test, you might need `vi.unstable_mockModule` or similar.
-
-    beforeEach(() => {
-      // This direct mock won't work as expected due to ESM module caching.
-      // We'll rely on the global fetch mock for makeFitbitRequest's behavior.
-      // This means these tests are more integration-like for handleFitbitApiCall + makeFitbitRequest.
-    });
-
-    it('should return success response when makeFitbitRequest succeeds', async () => {
-      const mockApiData = { data: 'some data' };
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+  describe('handleGoogleHealthCall', () => {
+    it('returns success JSON', async () => {
+      fetchMock().mockResolvedValue({
         ok: true,
-        json: async () => mockApiData,
-        status: 200
+        status: 200,
+        json: async () => ({ d: 1 }),
       });
-
-      const result = await handleFitbitApiCall('test/endpoint', {}, mockGetAccessTokenFn);
-      expect(result).toEqual(createSuccessResponse(mockApiData));
+      expect(await handleGoogleHealthCall('p', getToken)).toEqual(
+        createSuccessResponse({ d: 1 })
+      );
     });
 
-    it('should return error response when makeFitbitRequest returns null', async () => {
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ // Simulate makeFitbitRequest failure
-        ok: false,
-        status: 500,
-        text: async () => 'API Error'
+    it('returns an error response when there is no token', async () => {
+      getToken.mockResolvedValue(null);
+      const result = await handleGoogleHealthCall('p', getToken, {
+        errorContext: 'ctx',
       });
-      const params = { date: '2024-01-01' };
-      const errorContext = JSON.stringify(params);
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain(
+        `${ERROR_MESSAGES.API_REQUEST_FAILED} for ctx`
+      );
+    });
 
-      const result = await handleFitbitApiCall('test/endpoint', params, mockGetAccessTokenFn);
+    it('includes the HTTP status and Google error body', async () => {
+      fetchMock().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () => '{"error":"insufficient scope"}',
+      });
+      const result = await handleGoogleHealthCall('p', getToken, {
+        errorContext: 'ctx',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('HTTP 403');
+      expect(result.content[0].text).toContain('insufficient scope');
+    });
+
+    it('maps ACCOUNT_NOT_LINKED to a helpful message', async () => {
+      fetchMock().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () =>
+          '{"error":{"details":[{"reason":"ACCOUNT_NOT_LINKED"}]}}',
+      });
+      const result = await handleGoogleHealthCall('p', getToken);
       expect(result).toEqual(
-        createErrorResponse(
-          `${ERROR_MESSAGES.API_REQUEST_FAILED} for ${errorContext}. ${ERROR_MESSAGES.CHECK_TOKEN_PERMISSIONS}.`
-        )
+        createErrorResponse(ERROR_MESSAGES.ACCOUNT_NOT_LINKED)
       );
     });
 
-    it('should use successDataExtractor and return success if data exists', async () => {
-      const mockApiData = { items: [{ id: 1 }, { id: 2 }] };
-      const successDataExtractor = vi.fn((data: typeof mockApiData) => data.items);
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-        ok: true,
-        json: async () => mockApiData,
-        status: 200
+    it('reports network failures as error responses', async () => {
+      fetchMock().mockRejectedValue(new Error('boom'));
+      const result = await handleGoogleHealthCall('p', getToken, {
+        errorContext: 'ctx',
       });
-
-      const result = await handleFitbitApiCall(
-        'test/endpoint',
-        {},
-        mockGetAccessTokenFn,
-        { successDataExtractor }
-      );
-      expect(successDataExtractor).toHaveBeenCalledWith(mockApiData);
-      expect(result).toEqual(createSuccessResponse(mockApiData));
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('boom');
     });
 
-    it('should use successDataExtractor and return noDataResponse if extracted data is empty', async () => {
-      const mockApiData = { items: [] };
-      const successDataExtractor = vi.fn((data: typeof mockApiData) => data.items);
-      const noDataMessage = 'custom no data message';
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    it('returns a no-data response when the extractor yields nothing', async () => {
+      fetchMock().mockResolvedValue({
         ok: true,
-        json: async () => mockApiData,
-        status: 200
+        status: 200,
+        json: async () => ({ items: [] }),
       });
-
-      const result = await handleFitbitApiCall(
-        'test/endpoint',
-        {},
-        mockGetAccessTokenFn,
-        { successDataExtractor, noDataMessage }
+      const result = await handleGoogleHealthCall<{ items: unknown[] }>(
+        'p',
+        getToken,
+        {
+          successDataExtractor: (d) => d.items,
+          noDataMessage: 'nothing',
+        }
       );
-      expect(successDataExtractor).toHaveBeenCalledWith(mockApiData);
-      expect(result).toEqual(createNoDataResponse(noDataMessage));
+      expect(result).toEqual(createNoDataResponse('nothing'));
     });
-    
-    it('should use default noDataMessage if extractor returns empty and noDataMessage is not provided', async () => {
-      const mockApiData = { items: [] };
-      const successDataExtractor = vi.fn((data: typeof mockApiData) => data.items);
-      const params = { query: 'test' };
-      const errorContext = JSON.stringify(params);
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+
+    it('returns data when the extractor yields items', async () => {
+      const data = { items: [1] };
+      fetchMock().mockResolvedValue({
         ok: true,
-        json: async () => mockApiData,
-        status: 200
+        status: 200,
+        json: async () => data,
       });
+      const result = await handleGoogleHealthCall<typeof data>('p', getToken, {
+        successDataExtractor: (d) => d.items,
+      });
+      expect(result).toEqual(createSuccessResponse(data));
+    });
+  });
 
-      const result = await handleFitbitApiCall(
-        'test/endpoint',
-        params,
-        mockGetAccessTokenFn,
-        { successDataExtractor }
+  describe('listDataPoints / dailyRollUp', () => {
+    it('lists data points with filter and pagination', async () => {
+      fetchMock().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ dataPoints: [{ a: 1 }] }),
+      });
+      await listDataPoints(
+        'steps',
+        getToken,
+        { filter: 'f', pageSize: 2, pageToken: 'tok' },
+        'ctx'
       );
-      expect(result).toEqual(createNoDataResponse(errorContext));
+      expect(fetchMock().mock.calls[0][0]).toBe(
+        `${GOOGLE_HEALTH_API_BASE}/users/me/dataTypes/steps/dataPoints?filter=f&pageSize=2&pageToken=tok`
+      );
     });
 
-    it('should use custom apiBase if provided', async () => {
-      const customApiBase = 'https://custom.api.fitbit.com/v2';
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    it('reports no data when dataPoints is missing', async () => {
+      fetchMock().mockResolvedValue({
         ok: true,
+        status: 200,
         json: async () => ({}),
-        status: 200
       });
-
-      await handleFitbitApiCall('test/endpoint', {}, mockGetAccessTokenFn, { apiBase: customApiBase });
-      expect(fetch).toHaveBeenCalledWith(
-        `${customApiBase}/user/-/test/endpoint`,
-        expect.any(Object)
-      );
+      const result = await listDataPoints('steps', getToken, {}, 'ctx');
+      expect(result).toEqual(createNoDataResponse('ctx'));
     });
-    
-    it('should use custom errorContext if provided', async () => {
-      mockGetAccessTokenFn.mockResolvedValue('test_token');
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ 
-        ok: false,
-        status: 500,
-        text: async () => 'API Error'
-      });
-      const customErrorContext = 'my specific operation';
 
-      const result = await handleFitbitApiCall('test/endpoint', {}, mockGetAccessTokenFn, { errorContext: customErrorContext });
-      expect(result.content[0].text).toContain(`${ERROR_MESSAGES.API_REQUEST_FAILED} for ${customErrorContext}`);
+    it('posts a daily roll-up', async () => {
+      fetchMock().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ rollupDataPoints: [{ a: 1 }] }),
+      });
+      await dailyRollUp(
+        'steps',
+        getToken,
+        {
+          startDate: '2026-07-28',
+          endDate: '2026-07-29',
+          pageSize: 7,
+          pageToken: 't',
+        },
+        'ctx'
+      );
+      const [url, init] = fetchMock().mock.calls[0];
+      expect(url).toBe(
+        `${GOOGLE_HEALTH_API_BASE}/users/me/dataTypes/steps/dataPoints:dailyRollUp`
+      );
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toMatchObject({
+        windowSizeDays: 1,
+        pageSize: 7,
+        pageToken: 't',
+      });
     });
   });
 });

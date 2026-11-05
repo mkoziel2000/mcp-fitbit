@@ -3,6 +3,9 @@ node_modules
 build
 .env
 .fitbit-token.json
+.google-health-token.json
 .claude
 coverage
 *.tgz
+*.bak
+heathers-coach-project/

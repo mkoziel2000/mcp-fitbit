@@ -1,9 +1,9 @@
 # GitHub Copilot Instructions
 
 ## Project Overview
-MCP server for Fitbit API integration providing health data access (weight, sleep, activities, profile).
+MCP server for Google Health API integration (the successor to the Fitbit Web API, which ended 2026-11-02) providing health data access (weight, sleep, exercise, activity, heart rate, HRV, nutrition, profile).
 
-**Design Philosophy:** This MCP server acts as a 1:1 JSON proxy to the Fitbit API. Tools should match the underlying API parameters and limitations exactly, without adding abstraction layers or client-side data manipulation. Return raw JSON responses from Fitbit API calls.
+**Design Philosophy:** This MCP server acts as a 1:1 JSON proxy to the Google Health API (https://developers.google.com/health). Tools keep their familiar names but their parameters match the Google API (filters, civil/RFC 3339 times, `pageSize`/`pageToken`) and limitations exactly, without client-side data manipulation. Return raw JSON responses from Google Health API calls.
 
 ## Development Commands
 - `npm run build` - Compile TypeScript to build/ directory
@@ -15,27 +15,27 @@ MCP server for Fitbit API integration providing health data access (weight, slee
 
 ## Project Structure
 - `src/index.ts` - Main MCP server entry point, registers all tools
-- `src/auth.ts` - OAuth2 flow with token persistence
-- `src/utils.ts` - Shared Fitbit API request utilities  
-- `src/weight.ts` - Weight data tool (time series)
-- `src/sleep.ts` - Sleep data tool (date range)
+- `src/auth.ts` - Google OAuth2 flow (state check, offline access, Google Health link verification) with token persistence
+- `src/utils.ts` - Shared Google Health API request utilities and filter/roll-up helpers  
+- `src/weight.ts` - Weight data tool
+- `src/sleep.ts` - Sleep data tool
 - `src/activities.ts` - Exercise/activity data tool (date range)
 - `src/profile.ts` - User profile tool
 - `src/heart-rate.ts` - Heart rate data tools (time series and date range)
 - `src/nutrition.ts` - Nutrition data tools (comprehensive food log with macros, plus time series for individual nutrients)
 - `build/` - Compiled JavaScript output
-- `.env` - Environment variables (FITBIT_CLIENT_ID, FITBIT_CLIENT_SECRET)
+- `.env` - Environment variables (GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET; legacy FITBIT_* accepted as fallback)
 
 ## Code Conventions
 - TypeScript with ES modules
 - Zod for parameter validation
-- All tools return raw JSON from Fitbit API
+- All tools return raw JSON from the Google Health API
 - Error handling with console.error for debugging
-- Use makeFitbitRequest utility for API calls
-- **API Fidelity:** Tool parameters must exactly match Fitbit API requirements - no client-side workarounds or data filtering
-- **No Abstraction:** If Fitbit API only supports `afterDate`, the tool should only accept `afterDate` (not `startDate`/`endDate`)
-- **Documentation First:** Always check the official Fitbit API documentation at https://dev.fitbit.com/build/reference/ when adding new endpoints to ensure proper parameters, authentication scopes, and response formats
-- **CRITICAL: Endpoint URL Construction:** The `makeFitbitRequest` utility automatically adds `/user/-/` to all endpoint paths. When constructing endpoints, DO NOT include `user/-/` in the path - start directly with the resource path (e.g., `foods/log/caloriesIn/date/today/1d.json` NOT `user/-/foods/log/caloriesIn/date/today/1d.json`)
+- Use makeGoogleHealthRequest / handleGoogleHealthCall utilities for API calls
+- **API Fidelity:** Tool parameters must exactly match Google Health API requirements - no client-side workarounds or data filtering
+- **No Abstraction:** If the API only supports a filter on a field, expose that filter - don't invent Fitbit-style `period` parameters
+- **Documentation First:** Always check the official Google Health API documentation at https://developers.google.com/health when adding new endpoints to ensure proper parameters, authentication scopes, and response formats
+- **CRITICAL: Endpoint URL Construction:** `makeGoogleHealthRequest` prefixes `https://health.googleapis.com/v4/` only. Paths must include the user segment, e.g. `users/me/dataTypes/steps/dataPoints` (use `dataPointsPath()`). Data type names are kebab-case in URLs and snake_case in filters.
 
 ## Testing the Server
 **Development mode (with inspector):**
@@ -51,16 +51,16 @@ MCP server for Fitbit API integration providing health data access (weight, slee
 ## Environment Setup
 Requires `.env` file with:
 ```
-FITBIT_CLIENT_ID=your_client_id
-FITBIT_CLIENT_SECRET=your_client_secret
+GOOGLE_HEALTH_CLIENT_ID=your_client_id
+GOOGLE_HEALTH_CLIENT_SECRET=your_client_secret
 ```
 
 ## API Notes
-- Fitbit API uses different base URLs per endpoint (v1, v1.2)
-- Activities tool has custom request handler due to different URL structure
+- Single base URL: `https://health.googleapis.com/v4` (JSON over REST)
 - All dates in YYYY-MM-DD format
-- Token persisted to `.fitbit-token.json`
-- OAuth scopes: weight, sleep, profile, activity, heartrate, nutrition
+- Token persisted to `.google-health-token.json`; refresh token is only issued with `access_type=offline` + `prompt=consent` and is not returned on refresh
+- OAuth: Google OAuth 2.0 (authorize `https://accounts.google.com/o/oauth2/v2/auth`, token `https://oauth2.googleapis.com/token`), scopes `https://www.googleapis.com/auth/googlehealth.{activity_and_fitness,health_metrics_and_measurements,sleep,nutrition,profile,settings}.readonly`
+- Testing-mode refresh tokens expire after 7 days; ranges are start-inclusive, end-exclusive; list endpoints paginate with `nextPageToken`
 
 ## Contributing & Improvements
 

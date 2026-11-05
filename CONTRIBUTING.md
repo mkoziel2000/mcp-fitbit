@@ -1,29 +1,29 @@
-# Contributing to MCP Fitbit Server
+# Contributing to MCP Google Health Server
 
-Thank you for your interest in contributing to the MCP Fitbit Server! This project acts as a 1:1 JSON proxy to the Fitbit API, providing AI assistants with access to health data.
+Thank you for your interest in contributing to the MCP Google Health Server! This project acts as a 1:1 JSON proxy to the Google Health API, providing AI assistants with access to health data.
 
 ## 🎯 Project Philosophy
 
 This MCP server is designed to be:
-- **Simple and focused** - Direct proxy to Fitbit API without abstraction layers
+- **Simple and focused** - Direct proxy to Google Health API without abstraction layers
 - **Local development tool** - Not intended as a production service
 - **Minimal complexity** - Easy to understand and maintain
-- **API faithful** - Tools match Fitbit API parameters exactly
+- **API faithful** - Tools match Google Health API parameters exactly
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Node.js 18+ 
 - NPM
-- Fitbit Developer Account ([dev.fitbit.com](https://dev.fitbit.com))
+- Google Cloud project with the Google Health API enabled ([developers.google.com/health](https://developers.google.com/health))
 
 ### Setup
 1. Fork and clone the repository
 2. Install dependencies: `npm install`
 3. Create `.env` file with your Fitbit app credentials:
    ```
-   FITBIT_CLIENT_ID=your_client_id
-   FITBIT_CLIENT_SECRET=your_client_secret
+   GOOGLE_HEALTH_CLIENT_ID=your_client_id
+   GOOGLE_HEALTH_CLIENT_SECRET=your_client_secret
    ```
 4. Build the project: `npm run build`
 5. Test with MCP inspector: `npm run dev`
@@ -50,10 +50,10 @@ This MCP server is designed to be:
 - Prefer explicit types over `any`
 
 **API Integration:**
-- **Critical:** `makeFitbitRequest` automatically adds `/user/-/` - don't include it in endpoint paths
-- Tool parameters must exactly match Fitbit API requirements
-- Return raw JSON from Fitbit API calls - no client-side data manipulation
-- Check [Fitbit API docs](https://dev.fitbit.com/build/reference/) for proper endpoints
+- **Critical:** `makeGoogleHealthRequest` only prefixes `https://health.googleapis.com/v4/` - include `users/me/...` in paths (see `dataPointsPath()`)
+- Tool parameters must exactly match Google Health API requirements
+- Return raw JSON from Google Health API calls - no client-side data manipulation
+- Check [Google Health API docs](https://developers.google.com/health) for proper endpoints
 
 **Error Handling:**
 - Use `console.error` for debugging information
@@ -63,7 +63,7 @@ This MCP server is designed to be:
 **Testing:**
 - Write unit tests for all new tools using Vitest
 - Follow the pattern in existing `*.test.ts` files
-- Mock `utils.js` functions (`registerTool`, `handleFitbitApiCall`)
+- Mock `utils.js` functions (`registerTool`, `handleGoogleHealthCall`)
 - Test tool registration, handler logic, error cases, and parameter validation
 
 ## 🧪 Testing
@@ -77,14 +77,14 @@ npm run test:ui          # Run tests with interactive UI
 
 We aim for 80%+ test coverage. New features should include comprehensive tests.
 
-## 🔍 Adding New Fitbit Endpoints
+## 🔍 Adding New Google Health Endpoints
 
-When adding new Fitbit API endpoints:
+When adding new Google Health API endpoints:
 
-1. **Research the API first:** Check [Fitbit API documentation](https://dev.fitbit.com/build/reference/)
+1. **Research the API first:** Check [Google Health API documentation](https://developers.google.com/health)
 2. **Create the tool file:** Follow the pattern in existing tools (`src/weight.ts`, `src/sleep.ts`, etc.)
-3. **Parameter validation:** Use Zod schemas that match Fitbit API exactly
-4. **Endpoint construction:** Remember `makeFitbitRequest` adds `/user/-/` automatically
+3. **Parameter validation:** Use Zod schemas that match Google Health API exactly
+4. **Endpoint construction:** Remember `makeGoogleHealthRequest` adds `/user/-/` automatically
 5. **Register the tool:** Add to `src/index.ts`
 6. **Write tests:** Create corresponding `*.test.ts` file
 7. **Update documentation:** Add tool description to README.md
@@ -92,7 +92,7 @@ When adding new Fitbit API endpoints:
 ### Example Tool Structure:
 ```typescript
 import { z } from 'zod';
-import { registerTool, handleFitbitApiCall } from './utils.js';
+import { registerTool, handleGoogleHealthCall } from './utils.js';
 
 const GetDataSchema = z.object({
   date: z.string().describe('Date in YYYY-MM-DD format'),
@@ -101,7 +101,7 @@ const GetDataSchema = z.object({
 
 registerTool({
   name: 'get_data',
-  description: 'Get data from Fitbit API',
+  description: 'Get data from Google Health API',
   inputSchema: {
     type: 'object',
     properties: {
@@ -113,7 +113,7 @@ registerTool({
 }, async (args) => {
   const { date, period = '1d' } = GetDataSchema.parse(args);
   const endpoint = `data/date/${date}/${period}.json`;
-  return handleFitbitApiCall(endpoint);
+  return handleGoogleHealthCall(endpoint);
 });
 ```
 
@@ -138,7 +138,7 @@ For new features:
 - Check existing issues first
 - Explain the use case and benefit
 - Consider if it fits the project's simple, focused philosophy
-- Reference specific Fitbit API endpoints when applicable
+- Reference specific Google Health API endpoints when applicable
 
 ## 📋 Pull Request Guidelines
 
@@ -172,4 +172,4 @@ Feel free to open an issue for questions about contributing or the codebase.
 
 ---
 
-Thank you for helping make the MCP Fitbit Server better! 🎉
+Thank you for helping make the MCP Google Health Server better! 🎉

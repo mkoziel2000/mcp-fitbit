@@ -1,6 +1,6 @@
 {
   "name": "@einlogic/mcp-fitbit",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "type": "module",
   "main": "./build/index.js",
   "bin": {
@@ -32,7 +32,7 @@
   "keywords": [
     "mcp",
     "fitbit",
-    "fitbit-api",
+    "google-health-api",
     "mcp-server",
     "claude",
     "model-context-protocol",
@@ -43,7 +43,7 @@
   ],
   "author": "mkoziel2000",
   "license": "MIT",
-  "description": "Fork of TheDigitalNinja's mcp-fitbit with the addition of the Heart Rate Variability (HRV) tool. MCP server for accessing Fitbit health and fitness data. Connect AI assistants like Claude to your Fitbit data for personalized health insights.",
+  "description": "MCP server for accessing Fitbit / Pixel Watch health and fitness data through the Google Health API. Connect AI assistants like Claude to your data for personalized health insights.",
   "files": [
     "build/",
     "README.md",

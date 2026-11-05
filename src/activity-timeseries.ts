@@ -1,20 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { 
-  registerTool, 
-  CommonSchemas,
-  handleFitbitApiCall,
-  type CommonParams 
-} from './utils.js';
+import { registerTool, CommonSchemas, dailyRollUp } from './utils.js';
 
-interface ActivityTimeSeriesEntry {
-  dateTime: string;
-  value: string;
-}
-
-interface ActivityTimeSeriesResponse {
-  [key: string]: ActivityTimeSeriesEntry[];
-}
+export const ACTIVITY_DATA_TYPES = [
+  'steps',
+  'distance',
+  'total-calories',
+  'active-energy-burned',
+  'floors',
+  'active-minutes',
+] as const;
 
 /**
  * Registers an activity time series tool with the MCP server.
@@ -25,38 +20,31 @@ export function registerActivityTimeSeriesTool(
   server: McpServer,
   getAccessTokenFn: () => Promise<string | null>
 ): void {
-  type ActivityTimeSeriesParams = Pick<CommonParams, 'startDate' | 'endDate'> & { resourcePath: string };
-
   registerTool(server, {
     name: 'get_activity_timeseries',
-    description: "Get the raw JSON response for activity time series data from Fitbit over a date range (max 30 days). Supports various resource paths like 'steps', 'distance', 'calories', 'activityCalories', 'caloriesBMR'.",
+    description:
+      "Get the raw JSON response for daily activity roll-ups from the Google Health API (dailyRollUp) over a civil date range. Supports data types 'steps', 'distance', 'total-calories', 'active-energy-burned', 'floors', 'active-minutes'. startDate is inclusive, endDate is exclusive. Note: The API allows at most 90 days per request (14 days for 'total-calories' and 'active-minutes').",
     parametersSchema: {
-      resourcePath: z
-        .enum([
-          'steps',
-          'distance', 
-          'calories',
-          'activityCalories',
-          'caloriesBMR',
-          'tracker/activityCalories',
-          'tracker/calories',
-          'tracker/distance'
-        ])
-        .describe("Activity resource to retrieve (e.g., 'steps', 'distance', 'calories')"),
+      dataType: z
+        .enum(ACTIVITY_DATA_TYPES)
+        .describe("Activity data type to roll up (e.g., 'steps', 'distance')"),
       startDate: CommonSchemas.startDate,
       endDate: CommonSchemas.endDate,
     },
-    handler: async ({ resourcePath, startDate, endDate }: ActivityTimeSeriesParams) => {
-      const endpoint = `activities/${resourcePath}/date/${startDate}/${endDate}.json`;
-      
-      return handleFitbitApiCall<ActivityTimeSeriesResponse, ActivityTimeSeriesParams>(
-        endpoint,
-        { resourcePath, startDate, endDate },
+    handler: async ({
+      dataType,
+      startDate,
+      endDate,
+    }: {
+      dataType: (typeof ACTIVITY_DATA_TYPES)[number];
+      startDate: string;
+      endDate: string;
+    }) =>
+      dailyRollUp(
+        dataType,
         getAccessTokenFn,
-        {
-          errorContext: `resource '${resourcePath}' from ${startDate} to ${endDate}`
-        }
-      );
-    }
+        { startDate, endDate },
+        `data type '${dataType}' from ${startDate} to ${endDate}`
+      ),
   });
 }

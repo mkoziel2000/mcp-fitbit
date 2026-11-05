@@ -20,10 +20,13 @@ import { registerActivitiesTool } from './activities.js';
 import { registerHeartRateTools } from './heart-rate.js';
 import { registerNutritionTools } from './nutrition.js';
 import { registerDailyActivityTool } from './daily-activity.js';
-import { registerActivityGoalsTool } from './activity-goals.js';
 import { registerActivityTimeSeriesTool } from './activity-timeseries.js';
 import { registerAzmTimeSeriesTool } from './azm-timeseries.js';
 import { registerHrvTools } from './hrv.js';
+import { registerAccountTools } from './account.js';
+import { registerDataPointTools } from './data-points.js';
+import { registerCompatTools } from './compat/tools.js';
+import { resolveClientCredentials, resolveOutputMode } from './config.js';
 // Import utilities
 import './utils.js';
 
@@ -38,9 +41,11 @@ dotenv.config({ path: envPath });
 
 // Validate required environment variables
 function validateEnvironment(): void {
+  // GOOGLE_HEALTH_* is preferred; legacy FITBIT_* names are accepted as a fallback
+  const credentials = resolveClientCredentials();
   const requiredVars = {
-    FITBIT_CLIENT_ID: process.env.FITBIT_CLIENT_ID,
-    FITBIT_CLIENT_SECRET: process.env.FITBIT_CLIENT_SECRET,
+    GOOGLE_HEALTH_CLIENT_ID: credentials.id,
+    GOOGLE_HEALTH_CLIENT_SECRET: credentials.secret,
   };
 
   const missingVars = Object.entries(requiredVars)
@@ -49,11 +54,13 @@ function validateEnvironment(): void {
 
   if (missingVars.length > 0) {
     console.error('Missing required environment variables:');
-    missingVars.forEach(varName => {
+    missingVars.forEach((varName) => {
       console.error(`   - ${varName}`);
     });
     console.error(`Please create a .env file at: ${envPath}`);
-    console.error('See README.md for details on getting Fitbit API credentials.');
+    console.error(
+      'See README.md for details on getting Google Health API credentials.'
+    );
     process.exit(1);
   }
 }
@@ -66,26 +73,36 @@ console.error('✅ Environment variables loaded successfully');
 
 // Create the main MCP server instance
 const server = new McpServer({
-  name: 'fitbit',
-  version: '1.0.0',
+  name: 'google-health',
+  version: '2.0.0',
   capabilities: {
     resources: {},
     tools: {}, // Tools are registered dynamically below
   },
 });
 
-// Register available tools with the MCP server
-registerWeightTool(server, getAccessToken);
-registerSleepTool(server, getAccessToken);
+// Register available tools with the MCP server.
+// GOOGLE_HEALTH_OUTPUT_MODE=fitbit swaps the tools that overlap the legacy Fitbit tools for
+// Fitbit-shaped versions; everything else stays a 1:1 Google Health proxy.
+if (resolveOutputMode() === 'fitbit') {
+  console.error(
+    'Output mode: fitbit (legacy Fitbit tool names, parameters, shapes and units)'
+  );
+  registerCompatTools(server, getAccessToken);
+} else {
+  registerWeightTool(server, getAccessToken);
+  registerSleepTool(server, getAccessToken);
+  registerHeartRateTools(server, getAccessToken);
+  registerNutritionTools(server, getAccessToken);
+  registerDailyActivityTool(server, getAccessToken);
+  registerActivityTimeSeriesTool(server, getAccessToken);
+  registerAzmTimeSeriesTool(server, getAccessToken);
+  registerHrvTools(server, getAccessToken);
+}
 registerProfileTool(server, getAccessToken);
 registerActivitiesTool(server, getAccessToken);
-registerHeartRateTools(server, getAccessToken);
-registerNutritionTools(server, getAccessToken);
-registerDailyActivityTool(server, getAccessToken);
-registerActivityGoalsTool(server, getAccessToken);
-registerActivityTimeSeriesTool(server, getAccessToken);
-registerAzmTimeSeriesTool(server, getAccessToken);
-registerHrvTools(server, getAccessToken);
+registerAccountTools(server, getAccessToken);
+registerDataPointTools(server, getAccessToken);
 
 // --- Main Application Entry Point ---
 async function main() {
@@ -98,14 +115,14 @@ async function main() {
   try {
     // Connect the MCP server to the transport
     await server.connect(transport);
-    console.error('Fitbit MCP Server connected via stdio.');
+    console.error('Google Health MCP Server connected via stdio.');
 
     // Check if an access token is available after connection
     // If not, initiate the OAuth2 authorization flow
     const token = await getAccessToken();
     if (!token) {
       console.error(
-        'No access token found. Starting Fitbit authorization flow...'
+        'No access token found. Starting Google Health authorization flow...'
       );
       startAuthorizationFlow(); // Start flow in background, do not await
     } else {

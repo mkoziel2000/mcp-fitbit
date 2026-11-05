@@ -56,3 +56,4 @@ Thumbs.db
 
 # Token storage (security)
 .fitbit-token.json
+.google-health-token.json
