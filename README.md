@@ -131,6 +131,7 @@ List tools accept `pageSize` and `pageToken` (use `nextPageToken` from the respo
 | `get_identity` | `users/me/identity` | none |
 | `get_settings` | `users/me/settings` | none |
 | `list_paired_devices` | `users/me/pairedDevices` | none |
+| `reauthenticate` | not an API call: deletes the local tokens (memory + `.google-health-token.json`) and opens a new Google sign-in; new tokens are saved on approval, no restart needed. Cancels a pending sign-in. Confirm with `get_identity` | none |
 | `list_data_points` | any of the 38 data types | `dataType`, optional raw `filter` |
 | `reconcile_data_points` | `dataPoints:reconcile` for any data type | `dataType`, optional `filter`, `dataSourceFamily` |
 

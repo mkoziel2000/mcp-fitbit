@@ -5,6 +5,8 @@ const mockDotenvConfig = vi.fn();
 const mockInitializeAuth = vi.fn().mockResolvedValue(undefined);
 const mockStartAuthorizationFlow = vi.fn();
 const mockGetAccessToken = vi.fn();
+const mockReauthenticate = vi.fn();
+const mockRegisterAuthTools = vi.fn();
 
 const mockRegisterWeightTool = vi.fn();
 const mockRegisterSleepTool = vi.fn();
@@ -39,6 +41,10 @@ vi.doMock('./auth.js', () => ({
   initializeAuth: mockInitializeAuth,
   startAuthorizationFlow: mockStartAuthorizationFlow,
   getAccessToken: mockGetAccessToken,
+  reauthenticate: mockReauthenticate,
+}));
+vi.doMock('./auth-tools.js', () => ({
+  registerAuthTools: mockRegisterAuthTools,
 }));
 vi.doMock('./weight.js', () => ({
   registerWeightTool: mockRegisterWeightTool,
@@ -227,6 +233,10 @@ describe('index.ts script execution', () => {
     expect(mockRegisterAccountTools).toHaveBeenCalledWith(
       mockMcpServerInstance,
       mockGetAccessToken
+    );
+    expect(mockRegisterAuthTools).toHaveBeenCalledWith(
+      mockMcpServerInstance,
+      mockReauthenticate
     );
     expect(mockRegisterDataPointTools).toHaveBeenCalledWith(
       mockMcpServerInstance,

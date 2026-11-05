@@ -11,6 +11,7 @@ import {
   initializeAuth,
   startAuthorizationFlow,
   getAccessToken,
+  reauthenticate,
 } from './auth.js';
 // Import tool registration function(s)
 import { registerWeightTool } from './weight.js';
@@ -24,6 +25,7 @@ import { registerActivityTimeSeriesTool } from './activity-timeseries.js';
 import { registerAzmTimeSeriesTool } from './azm-timeseries.js';
 import { registerHrvTools } from './hrv.js';
 import { registerAccountTools } from './account.js';
+import { registerAuthTools } from './auth-tools.js';
 import { registerDataPointTools } from './data-points.js';
 import { registerCompatTools } from './compat/tools.js';
 import { resolveClientCredentials, resolveOutputMode } from './config.js';
@@ -102,6 +104,7 @@ if (resolveOutputMode() === 'fitbit') {
 registerProfileTool(server, getAccessToken);
 registerActivitiesTool(server, getAccessToken);
 registerAccountTools(server, getAccessToken);
+registerAuthTools(server, reauthenticate);
 registerDataPointTools(server, getAccessToken);
 
 // --- Main Application Entry Point ---

@@ -360,6 +360,58 @@ export function startAuthorizationFlow(): void {
 }
 
 /**
+ * Stops a pending authorization callback server (if any) and waits until its
+ * port is free, so a new flow can bind to it.
+ */
+async function stopAuthorizationServer(): Promise<void> {
+  const server = oauthServer;
+  if (!server) return;
+  oauthServer = null;
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+    // Drop keep-alive connections (e.g. an open browser tab) so close() completes
+    (server as { closeAllConnections?: () => void }).closeAllConnections?.();
+  });
+}
+
+/**
+ * Forgets the current token: clears it from memory and deletes the token file.
+ * @returns true when a token file was deleted, false when there was none.
+ */
+export async function clearStoredToken(): Promise<boolean> {
+  accessToken = null;
+  tokenData = null;
+  try {
+    await fs.unlink(TOKEN_FILE_PATH);
+    console.error(`Token file deleted: ${TOKEN_FILE_PATH}`);
+    return true;
+  } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+/**
+ * Clears the local tokens and starts a fresh authorization flow. Any flow that
+ * is still waiting for a callback is cancelled first. The new token is stored
+ * (in memory and on disk) once the user finishes consent in the browser.
+ * @returns whether a token file was removed, and the URL that starts consent
+ *          (null when the flow could not start, e.g. missing client credentials).
+ */
+export async function reauthenticate(): Promise<{
+  tokenFileCleared: boolean;
+  authUrl: string | null;
+}> {
+  await stopAuthorizationServer();
+  const tokenFileCleared = await clearStoredToken();
+  startAuthorizationFlow();
+  return {
+    tokenFileCleared,
+    authUrl: oauthServer ? `http://localhost:${PORT}/auth` : null,
+  };
+}
+
+/**
  * Retrieves the current Google Health access token.
  * Automatically checks for token expiry and refreshes if necessary.
  * @returns The access token string or null if not available.

@@ -9,6 +9,7 @@ import { registerHrvTools } from './hrv.js';
 import { registerNutritionTools } from './nutrition.js';
 import { registerProfileTool } from './profile.js';
 import { registerAccountTools } from './account.js';
+import { registerAuthTools } from './auth-tools.js';
 import {
   registerDailyActivityTool,
   DAILY_SUMMARY_DATA_TYPES,
@@ -181,6 +182,40 @@ describe('Named tools', () => {
     const profile = setup(registerProfileTool);
     await profile.handlers.get_profile({});
     expect(lastUrl()).toBe(`${base}/users/me/profile`);
+  });
+
+  it('reauthenticate reports the auth URL once the flow has started', async () => {
+    const reauth = vi
+      .fn()
+      .mockResolvedValue({ tokenFileCleared: true, authUrl: 'http://localhost:3000/auth' });
+    const { handlers } = setup((s) => registerAuthTools(s, reauth));
+    const res = await handlers.reauthenticate({});
+    const body = JSON.parse(res.content[0].text);
+    expect(reauth).toHaveBeenCalledTimes(1);
+    expect(res.isError).toBeUndefined();
+    expect(body).toMatchObject({
+      status: 'authorization_started',
+      tokenFileCleared: true,
+      authUrl: 'http://localhost:3000/auth',
+    });
+  });
+
+  it('reauthenticate returns an error when the flow cannot start or throws', async () => {
+    const stuck = setup((s) =>
+      registerAuthTools(s, async () => ({ tokenFileCleared: true, authUrl: null }))
+    );
+    const noFlow = await stuck.handlers.reauthenticate({});
+    expect(noFlow.isError).toBe(true);
+    expect(noFlow.content[0].text).toContain('could not start');
+
+    const failing = setup((s) =>
+      registerAuthTools(s, async () => {
+        throw new Error('disk locked');
+      })
+    );
+    const failed = await failing.handlers.reauthenticate({});
+    expect(failed.isError).toBe(true);
+    expect(failed.content[0].text).toContain('disk locked');
   });
 
   it('activity and AZM tools roll up per day', async () => {

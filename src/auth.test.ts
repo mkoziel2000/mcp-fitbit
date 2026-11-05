@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockReadFile = vi.fn();
 const mockWriteFile = vi.fn().mockResolvedValue(undefined);
+const mockUnlink = vi.fn().mockResolvedValue(undefined);
 const mockExistsSync = vi.fn();
 const mockRefresh = vi.fn();
 const mockCreateToken = vi.fn(() => ({ refresh: mockRefresh }));
@@ -23,7 +24,11 @@ const mockOpen = vi.fn().mockResolvedValue(undefined);
 
 vi.doMock('dotenv', () => ({ default: { config: vi.fn() } }));
 vi.doMock('fs/promises', () => ({
-  default: { readFile: mockReadFile, writeFile: mockWriteFile },
+  default: {
+    readFile: mockReadFile,
+    writeFile: mockWriteFile,
+    unlink: mockUnlink,
+  },
 }));
 vi.doMock('fs', () => ({ existsSync: mockExistsSync }));
 vi.doMock('simple-oauth2', () => ({
@@ -149,6 +154,65 @@ describe('auth', () => {
     await auth.initializeAuth();
     expect(await auth.getAccessToken()).toBeNull();
     expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  describe('re-authentication', () => {
+    const loadToken = async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: future })
+      );
+      mockAuthorizeURL.mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?x=1');
+      const auth = await import('./auth.js');
+      await auth.initializeAuth();
+      expect(await auth.getAccessToken()).toBe('a');
+      return auth;
+    };
+
+    it('clears memory and the token file, then starts a new flow', async () => {
+      const auth = await loadToken();
+      const result = await auth.reauthenticate();
+
+      expect(mockUnlink).toHaveBeenCalledWith(expect.stringContaining('.google-health-token.json'));
+      expect(await auth.getAccessToken()).toBeNull();
+      expect(mockListen).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ tokenFileCleared: true, authUrl: 'http://localhost:3000/auth' });
+    });
+
+    it('works when there is no token file to delete', async () => {
+      mockUnlink.mockRejectedValueOnce(Object.assign(new Error('gone'), { code: 'ENOENT' }));
+      mockAuthorizeURL.mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?x=1');
+      const auth = await import('./auth.js');
+      const result = await auth.reauthenticate();
+      expect(result.tokenFileCleared).toBe(false);
+      expect(result.authUrl).toBe('http://localhost:3000/auth');
+    });
+
+    it('propagates unexpected file errors and does not start a flow', async () => {
+      mockUnlink.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EPERM' }));
+      const auth = await import('./auth.js');
+      await expect(auth.reauthenticate()).rejects.toThrow('denied');
+      expect(mockListen).not.toHaveBeenCalled();
+    });
+
+    it('cancels a pending flow before starting the new one', async () => {
+      mockAuthorizeURL.mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?x=1');
+      const auth = await import('./auth.js');
+      auth.startAuthorizationFlow();
+      expect(mockListen).toHaveBeenCalledTimes(1);
+
+      await auth.reauthenticate();
+      expect(mockClose).toHaveBeenCalledTimes(1);
+      expect(mockListen).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports no auth URL when the flow cannot start', async () => {
+      delete process.env.GOOGLE_HEALTH_CLIENT_ID;
+      delete process.env.FITBIT_CLIENT_ID;
+      const auth = await import('./auth.js');
+      const result = await auth.reauthenticate();
+      expect(result.authUrl).toBeNull();
+    });
   });
 
   describe('authorization flow', () => {

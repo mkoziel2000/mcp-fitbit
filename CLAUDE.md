@@ -30,6 +30,7 @@ MCP server for Google Health API integration (the successor to the Fitbit Web AP
 - `src/nutrition.ts` - Nutrition data tools (comprehensive food log with macros, plus time series for individual nutrients)
 - `src/daily-activity.ts` - Daily activity summary tool (steps, calories, goals, heart rate zones)
 - `src/account.ts` - Identity, settings and paired devices tools
+- `src/auth-tools.ts` - `reauthenticate` tool (clears local tokens via `auth.reauthenticate()` and starts a new OAuth flow)
 - `src/data-points.ts` - Generic `list_data_points` / `reconcile_data_points` tools for any data type
 - `src/activity-timeseries.ts` - Activity time series tool (steps, distance, calories over time)
 - `src/azm-timeseries.ts` - Active Zone Minutes time series tool
@@ -63,7 +64,7 @@ MCP server for Google Health API integration (the successor to the Fitbit Web AP
 **Production mode:**
 1. `npm run build` - Compile TypeScript
 2. `npm run start` - Run server directly
-3. Tools available after auth: get_weight, get_sleep_by_date_range, get_exercises, get_daily_activity_summary, get_activity_timeseries, get_azm_timeseries, get_profile, get_heart_rate, get_heart_rate_by_date_range, get_food_log, get_nutrition, get_nutrition_by_date_range, get_hrv, get_hrv_by_date_range, get_identity, get_settings, list_paired_devices, list_data_points, reconcile_data_points
+3. Tools available after auth: get_weight, get_sleep_by_date_range, get_exercises, get_daily_activity_summary, get_activity_timeseries, get_azm_timeseries, get_profile, get_heart_rate, get_heart_rate_by_date_range, get_food_log, get_nutrition, get_nutrition_by_date_range, get_hrv, get_hrv_by_date_range, get_identity, get_settings, list_paired_devices, reauthenticate, list_data_points, reconcile_data_points
 
 ## Environment Setup
 Requires `.env` file with:
