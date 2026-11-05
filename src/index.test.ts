@@ -175,7 +175,7 @@ describe('index.ts script execution', () => {
 
     expect(mockMcpServerConstructor).toHaveBeenCalledWith({
       name: 'google-health',
-      version: '2.0.0',
+      version: '2.1.0',
       capabilities: {
         resources: {},
         tools: {},
