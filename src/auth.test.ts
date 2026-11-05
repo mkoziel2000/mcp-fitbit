@@ -208,7 +208,6 @@ describe('auth', () => {
 
     it('reports no auth URL when the flow cannot start', async () => {
       delete process.env.GOOGLE_HEALTH_CLIENT_ID;
-      delete process.env.FITBIT_CLIENT_ID;
       const auth = await import('./auth.js');
       const result = await auth.reauthenticate();
       expect(result.authUrl).toBeNull();
@@ -347,7 +346,6 @@ describe('auth', () => {
 
     it('does nothing without client credentials', async () => {
       delete process.env.GOOGLE_HEALTH_CLIENT_ID;
-      delete process.env.FITBIT_CLIENT_ID;
       const auth = await import('./auth.js');
       auth.startAuthorizationFlow();
       expect(mockListen).not.toHaveBeenCalled();

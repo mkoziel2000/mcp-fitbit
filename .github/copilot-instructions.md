@@ -24,7 +24,7 @@ MCP server for Google Health API integration (the successor to the Fitbit Web AP
 - `src/heart-rate.ts` - Heart rate data tools (time series and date range)
 - `src/nutrition.ts` - Nutrition data tools (comprehensive food log with macros, plus time series for individual nutrients)
 - `build/` - Compiled JavaScript output
-- `.env` - Environment variables (GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET; legacy FITBIT_* accepted as fallback)
+- `.env` - Environment variables (GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET)
 
 ## Code Conventions
 - TypeScript with ES modules

@@ -124,8 +124,6 @@ describe('index.ts script execution', () => {
   it('should validate environment variables and exit if missing', async () => {
     delete process.env.GOOGLE_HEALTH_CLIENT_ID;
     delete process.env.GOOGLE_HEALTH_CLIENT_SECRET;
-    delete process.env.FITBIT_CLIENT_ID;
-    delete process.env.FITBIT_CLIENT_SECRET;
 
     await expect(import('../src/index.js')).rejects.toThrow('process.exit: 1');
 
@@ -154,16 +152,17 @@ describe('index.ts script execution', () => {
     );
   });
 
-  it('should accept legacy FITBIT_* credentials as a fallback', async () => {
+  it('should not accept FITBIT_* variables as credentials', async () => {
     delete process.env.GOOGLE_HEALTH_CLIENT_ID;
     delete process.env.GOOGLE_HEALTH_CLIENT_SECRET;
-    process.env.FITBIT_CLIENT_ID = 'legacy-id';
-    process.env.FITBIT_CLIENT_SECRET = 'legacy-secret';
-    mockGetAccessToken.mockResolvedValue('fake-token');
+    process.env.FITBIT_CLIENT_ID = 'old-fitbit-id';
+    process.env.FITBIT_CLIENT_SECRET = 'old-fitbit-secret';
 
-    await import('../src/index.js');
+    await expect(import('../src/index.js')).rejects.toThrow('process.exit: 1');
 
-    expect(mockProcessExit).not.toHaveBeenCalled();
+    expect(mockProcessExit).toHaveBeenCalledWith(1);
+    delete process.env.FITBIT_CLIENT_ID;
+    delete process.env.FITBIT_CLIENT_SECRET;
   });
 
   it('should instantiate McpServer with correct parameters', async () => {
@@ -175,7 +174,7 @@ describe('index.ts script execution', () => {
 
     expect(mockMcpServerConstructor).toHaveBeenCalledWith({
       name: 'google-health',
-      version: '2.1.0',
+      version: '2.2.0',
       capabilities: {
         resources: {},
         tools: {},

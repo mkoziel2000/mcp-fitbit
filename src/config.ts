@@ -25,18 +25,11 @@ export const GOOGLE_OAUTH_CONFIG = {
   ].join(' '),
 } as const;
 
-/**
- * Resolves OAuth client credentials from the environment.
- * GOOGLE_HEALTH_* is preferred; the legacy FITBIT_* names are accepted as a fallback.
- */
+/** Resolves the Google OAuth client credentials from GOOGLE_HEALTH_CLIENT_ID / _SECRET. */
 export function resolveClientCredentials(): { id: string; secret: string } {
   return {
-    id:
-      process.env.GOOGLE_HEALTH_CLIENT_ID || process.env.FITBIT_CLIENT_ID || '',
-    secret:
-      process.env.GOOGLE_HEALTH_CLIENT_SECRET ||
-      process.env.FITBIT_CLIENT_SECRET ||
-      '',
+    id: process.env.GOOGLE_HEALTH_CLIENT_ID || '',
+    secret: process.env.GOOGLE_HEALTH_CLIENT_SECRET || '',
   };
 }
 

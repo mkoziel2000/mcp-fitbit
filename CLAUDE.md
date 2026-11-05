@@ -37,7 +37,7 @@ MCP server for Google Health API integration (the successor to the Fitbit Web AP
 - `src/hrv.ts` - Heart Rate Variability (HRV) tools (single date and date range)
 - `src/compat/` - Optional Fitbit-compatible output mode (`GOOGLE_HEALTH_OUTPUT_MODE=fitbit`): `convert.ts` (pure Google→Fitbit shape/unit mappers), `api.ts` (paging, units/time-zone context, zone assembly), `tools.ts` (legacy tool names, `period` params, inclusive end dates)
 - `build/` - Compiled JavaScript output
-- `.env` - Environment variables (GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET; legacy FITBIT_* accepted as fallback)
+- `.env` - Environment variables (GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET)
 
 ## Output Modes
 - Default (`google`): 1:1 JSON proxy, as described above. Do not add client-side manipulation here.

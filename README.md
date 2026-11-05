@@ -23,8 +23,7 @@ the Google Health API and returns its raw JSON.
 ## ⚠️ Breaking changes from the Fitbit version
 
 - You must create a **Google Cloud** OAuth client (see below) and re-authorize. Old Fitbit tokens cannot be reused.
-- Credentials are now `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET` (the old `FITBIT_*` names still work as a fallback).
-- The token file is now `.google-health-token.json` (the old `.fitbit-token.json` is ignored and can be deleted).
+- Credentials are now `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET`.- The token file is now `.google-health-token.json` (the old `.fitbit-token.json` is ignored and can be deleted).
 - Responses are the Google Health API's JSON, not Fitbit's. Fitbit-style `period` (`1d`, `7d`, ...) parameters are gone: tools take explicit start/end times, as the API does.
 - `get_activity_goals` was removed: the Google Health API has no goals endpoint.
 - New tools: `get_identity`, `get_settings`, `list_paired_devices`, `list_data_points`, `reconcile_data_points`.

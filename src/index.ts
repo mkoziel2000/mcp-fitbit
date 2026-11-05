@@ -43,7 +43,6 @@ dotenv.config({ path: envPath });
 
 // Validate required environment variables
 function validateEnvironment(): void {
-  // GOOGLE_HEALTH_* is preferred; legacy FITBIT_* names are accepted as a fallback
   const credentials = resolveClientCredentials();
   const requiredVars = {
     GOOGLE_HEALTH_CLIENT_ID: credentials.id,
@@ -76,7 +75,7 @@ console.error('✅ Environment variables loaded successfully');
 // Create the main MCP server instance
 const server = new McpServer({
   name: 'google-health',
-  version: '2.1.0',
+  version: '2.2.0',
   capabilities: {
     resources: {},
     tools: {}, // Tools are registered dynamically below
