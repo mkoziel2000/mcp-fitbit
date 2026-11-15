@@ -11,6 +11,7 @@ import {
   initializeAuth,
   startAuthorizationFlow,
   getAccessToken,
+  isAuthorizationRequired,
   reauthenticate,
 } from './auth.js';
 // Import tool registration function(s)
@@ -75,7 +76,7 @@ console.error('✅ Environment variables loaded successfully');
 // Create the main MCP server instance
 const server = new McpServer({
   name: 'google-health',
-  version: '2.2.0',
+  version: '2.3.0',
   capabilities: {
     resources: {},
     tools: {}, // Tools are registered dynamically below
@@ -122,13 +123,19 @@ async function main() {
     // Check if an access token is available after connection
     // If not, initiate the OAuth2 authorization flow
     const token = await getAccessToken();
-    if (!token) {
+    if (token) {
+      console.error('Using existing/loaded access token.');
+    } else if (isAuthorizationRequired()) {
       console.error(
         'No access token found. Starting Google Health authorization flow...'
       );
       startAuthorizationFlow(); // Start flow in background, do not await
     } else {
-      console.error('Using existing/loaded access token.');
+      // A stored token exists but refreshing failed for a temporary reason
+      // (e.g. offline). Do not force a new sign-in; the next request retries.
+      console.error(
+        'A stored token exists but could not be refreshed right now. Not starting sign-in; it will be retried on the next request.'
+      );
     }
   } catch (error) {
     console.error('Failed to connect MCP server:', error);

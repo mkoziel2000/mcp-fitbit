@@ -3,6 +3,9 @@
  * Contains all constants, API URLs, and shared configurations
  */
 
+import os from 'os';
+import path from 'path';
+
 // === API Configuration ===
 
 export const GOOGLE_HEALTH_API_BASE = 'https://health.googleapis.com/v4';
@@ -40,7 +43,9 @@ export function resolveClientCredentials(): { id: string; secret: string } {
 export type OutputMode = 'google' | 'fitbit';
 
 export function resolveOutputMode(): OutputMode {
-  const value = (process.env.GOOGLE_HEALTH_OUTPUT_MODE || 'google').toLowerCase();
+  const value = (
+    process.env.GOOGLE_HEALTH_OUTPUT_MODE || 'google'
+  ).toLowerCase();
   return value === 'fitbit' ? 'fitbit' : 'google';
 }
 
@@ -139,8 +144,26 @@ export const HTTP_CONFIG = {
 // === File Paths ===
 
 export const FILE_PATHS = {
-  TOKEN_STORAGE: '.google-health-token.json',
+  /** Per-user directory (under the home directory) that holds the token file. */
+  TOKEN_DIR: '.google-health-mcp',
+  TOKEN_FILE: 'token.json',
+  /** Env var that overrides the full token file path. */
+  TOKEN_PATH_ENV: 'GOOGLE_HEALTH_TOKEN_PATH',
 } as const;
+
+/**
+ * Where the OAuth token is persisted. Deliberately NOT inside the package/install
+ * directory: that is often read-only (global npm installs) and is wiped on
+ * upgrade, which would force a new sign-in every session.
+ * Override with GOOGLE_HEALTH_TOKEN_PATH.
+ */
+export function resolveTokenPath(): string {
+  const override = process.env[FILE_PATHS.TOKEN_PATH_ENV];
+  if (override && override.trim()) {
+    return path.resolve(override.trim());
+  }
+  return path.join(os.homedir(), FILE_PATHS.TOKEN_DIR, FILE_PATHS.TOKEN_FILE);
+}
 
 // === Error Messages ===
 

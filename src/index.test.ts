@@ -5,6 +5,7 @@ const mockDotenvConfig = vi.fn();
 const mockInitializeAuth = vi.fn().mockResolvedValue(undefined);
 const mockStartAuthorizationFlow = vi.fn();
 const mockGetAccessToken = vi.fn();
+const mockIsAuthorizationRequired = vi.fn().mockReturnValue(true);
 const mockReauthenticate = vi.fn();
 const mockRegisterAuthTools = vi.fn();
 
@@ -41,6 +42,7 @@ vi.doMock('./auth.js', () => ({
   initializeAuth: mockInitializeAuth,
   startAuthorizationFlow: mockStartAuthorizationFlow,
   getAccessToken: mockGetAccessToken,
+  isAuthorizationRequired: mockIsAuthorizationRequired,
   reauthenticate: mockReauthenticate,
 }));
 vi.doMock('./auth-tools.js', () => ({
@@ -174,7 +176,7 @@ describe('index.ts script execution', () => {
 
     expect(mockMcpServerConstructor).toHaveBeenCalledWith({
       name: 'google-health',
-      version: '2.2.0',
+      version: '2.3.0',
       capabilities: {
         resources: {},
         tools: {},
@@ -269,8 +271,22 @@ describe('index.ts script execution', () => {
       expect(mockStartAuthorizationFlow).not.toHaveBeenCalled();
     });
 
+    it('should not start sign-in when a stored token only failed to refresh temporarily', async () => {
+      mockGetAccessToken.mockResolvedValue(null);
+      mockIsAuthorizationRequired.mockReturnValue(false);
+
+      await import('../src/index.js');
+      await new Promise(setImmediate);
+
+      expect(mockStartAuthorizationFlow).not.toHaveBeenCalled();
+      expect(mockConsoleError).toHaveBeenCalledWith(
+        expect.stringContaining('could not be refreshed right now')
+      );
+    });
+
     it('should start authorization flow if no token is available', async () => {
       mockGetAccessToken.mockResolvedValue(null);
+      mockIsAuthorizationRequired.mockReturnValue(true);
 
       await import('../src/index.js');
       await new Promise(setImmediate);

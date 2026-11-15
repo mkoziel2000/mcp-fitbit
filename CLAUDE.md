@@ -76,7 +76,8 @@ GOOGLE_HEALTH_CLIENT_SECRET=your_client_secret
 ## API Notes
 - Single base URL: `https://health.googleapis.com/v4` (JSON over REST)
 - All dates in YYYY-MM-DD format
-- Token persisted to `.google-health-token.json`; refresh token is only issued with `access_type=offline` + `prompt=consent` and is not returned on refresh
+- Token persisted to `~/.google-health-mcp/token.json` (override: `GOOGLE_HEALTH_TOKEN_PATH`), deliberately outside the install dir (global npm installs are often read-only and wiped on upgrade, which forced a sign-in every session). Writes are atomic (temp file + rename). Refresh token is only issued with `access_type=offline` + `prompt=consent` and is not returned on refresh
+- Refresh failure handling (`src/auth.ts`): only `invalid_grant` discards the token and triggers sign-in. Temporary errors keep it, retry with backoff, and `main()` does not open the browser (`isAuthorizationRequired()`); parallel callers share one refresh; a session with no token re-reads the file (another session may have signed in)
 - OAuth: Google OAuth 2.0 (authorize `https://accounts.google.com/o/oauth2/v2/auth`, token `https://oauth2.googleapis.com/token`), scopes `https://www.googleapis.com/auth/googlehealth.{activity_and_fitness,health_metrics_and_measurements,sleep,nutrition,profile,settings}.readonly`
 - Testing-mode refresh tokens expire after 7 days; ranges are start-inclusive, end-exclusive; list endpoints paginate with `nextPageToken`
 

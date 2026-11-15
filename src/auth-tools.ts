@@ -22,7 +22,7 @@ export function registerAuthTools(
   registerTool(server, {
     name: 'reauthenticate',
     description:
-      "Clear this MCP server's locally stored Google Health tokens (memory and .google-health-token.json) and start a new Google sign-in. A browser window opens for consent; once approved, new tokens are saved and the other tools work again without restarting the server. Use when the token has expired (testing-mode refresh tokens last 7 days), was revoked, or the wrong Google account is connected. Cancels any sign-in that is still pending. Verify afterwards with get_identity.",
+      "Clear this MCP server's locally stored Google Health tokens (memory and the token file) and start a new Google sign-in. A browser window opens for consent; once approved, new tokens are saved and the other tools work again without restarting the server. Use when the token has expired (testing-mode refresh tokens last 7 days), was revoked, or the wrong Google account is connected. Cancels any sign-in that is still pending. Verify afterwards with get_identity.",
     parametersSchema: {},
     handler: async () => {
       try {

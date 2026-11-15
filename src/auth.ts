@@ -15,6 +15,7 @@ import {
   ERROR_MESSAGES,
   HTTP_CONFIG,
   resolveClientCredentials,
+  resolveTokenPath,
 } from './config.js';
 
 // TypeScript interfaces for token data structures
@@ -76,26 +77,47 @@ let accessToken: string | null = null;
 let tokenData: GoogleTokenData | null = null;
 // Holds the temporary HTTP server instance used for the OAuth callback
 let oauthServer: http.Server | null = null;
+// A refresh already running, so parallel callers share one Google request
+let refreshInFlight: Promise<void> | null = null;
+// Refresh token Google rejected with invalid_grant. A copy of it found on disk
+// is ignored, so an unauthenticated session doesn't retry it on every call.
+let rejectedRefreshToken: string | null = null;
 
-// --- File paths for token persistence ---
-const TOKEN_FILE_PATH = path.resolve(
-  currentDirname,
-  '..',
-  FILE_PATHS.TOKEN_STORAGE
-);
+// How many times a refresh is tried before giving up for now
+const REFRESH_MAX_ATTEMPTS = 3;
+
+// --- File path for token persistence (per-user, outside the install dir) ---
+const TOKEN_FILE_PATH = resolveTokenPath();
 
 // --- OAuth Client Initialization ---
 const oauthClient = new AuthorizationCode(googleConfig);
 
 /**
- * Saves the token data to a file for persistence
+ * Saves the token data to a file for persistence. The write is atomic (temp
+ * file + rename) so a session starting at the same moment never reads a
+ * half-written file.
+ * @returns null on success, otherwise a description of why the save failed.
  */
-async function saveTokenToFile(data: GoogleTokenData): Promise<void> {
+async function saveTokenToFile(data: GoogleTokenData): Promise<string | null> {
+  const tempPath = `${TOKEN_FILE_PATH}.${process.pid}.tmp`;
   try {
-    await fs.writeFile(TOKEN_FILE_PATH, JSON.stringify(data, null, 2), 'utf8');
+    await fs.mkdir(path.dirname(TOKEN_FILE_PATH), { recursive: true });
+    await fs.writeFile(tempPath, JSON.stringify(data, null, 2), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    await fs.rename(tempPath, TOKEN_FILE_PATH);
     console.error(`Token saved to ${TOKEN_FILE_PATH}`);
+    return null;
   } catch (error) {
-    console.error(`Error saving token to file: ${error}`);
+    await fs.unlink(tempPath).catch(() => undefined);
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(
+      `Error saving token to ${TOKEN_FILE_PATH}: ${reason}. ` +
+        `You will have to sign in again next session. ` +
+        `Set ${FILE_PATHS.TOKEN_PATH_ENV} to a writable file path.`
+    );
+    return reason;
   }
 }
 
@@ -156,46 +178,137 @@ async function verifyAccountLinked(token: string): Promise<boolean> {
   }
 }
 
-function isExpired(data: GoogleTokenData): boolean {
+function isExpired(data: GoogleTokenData, marginMs = 60_000): boolean {
   if (!data.expires_at) return false;
-  // Refresh a minute early to avoid racing the expiry
-  return new Date(data.expires_at).getTime() - 60_000 < Date.now();
+  // By default refresh a minute early to avoid racing the expiry
+  return new Date(data.expires_at).getTime() - marginMs < Date.now();
+}
+
+function forgetTokenInMemory(): void {
+  accessToken = null;
+  tokenData = null;
+}
+
+interface RefreshErrorShape {
+  message?: string;
+  output?: { statusCode?: number };
+  data?: { payload?: unknown; res?: { statusCode?: number } };
+}
+
+/** The error text plus Google's response body (e.g. {"error":"invalid_grant"}). */
+function describeRefreshError(error: unknown): string {
+  const e = error as RefreshErrorShape;
+  const payload = e?.data?.payload;
+  const body =
+    payload === undefined
+      ? ''
+      : ` ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`;
+  return `${e?.message ?? String(error)}${body}`;
+}
+
+/** invalid_grant: the refresh token is expired, revoked or otherwise dead. */
+function isInvalidGrant(error: unknown): boolean {
+  return describeRefreshError(error).includes('invalid_grant');
+}
+
+/** A client error (4xx, except timeout/rate limit): retrying cannot help. */
+function isNonRetryable(error: unknown): boolean {
+  const e = error as RefreshErrorShape;
+  const status = e?.output?.statusCode ?? e?.data?.res?.statusCode;
+  return (
+    typeof status === 'number' &&
+    status >= 400 &&
+    status < 500 &&
+    status !== 408 &&
+    status !== 429
+  );
+}
+
+async function refreshAccessToken(): Promise<void> {
+  const current = tokenData;
+  if (!current) return;
+
+  const refreshToken = current.refresh_token;
+  if (!refreshToken) {
+    console.error('Token is expired and no refresh token is available.');
+    forgetTokenInMemory();
+    return;
+  }
+
+  for (let attempt = 1; attempt <= REFRESH_MAX_ATTEMPTS; attempt++) {
+    console.error(
+      `Token is expired. Attempting to refresh (attempt ${attempt}/${REFRESH_MAX_ATTEMPTS})...`
+    );
+    try {
+      const refreshed = await oauthClient.createToken(current).refresh();
+      const refreshedData = refreshed.token as GoogleTokenData;
+      // Google does not return a refresh token on refresh: keep the existing one
+      if (!refreshedData.refresh_token) {
+        refreshedData.refresh_token = refreshToken;
+      }
+      tokenData = refreshedData;
+      accessToken = refreshedData.access_token;
+      await saveTokenToFile(refreshedData);
+      console.error('Token refreshed successfully.');
+      return;
+    } catch (error) {
+      const detail = describeRefreshError(error);
+      if (isInvalidGrant(error)) {
+        // Only this means the refresh token itself is dead and sign-in is needed
+        console.error(
+          `Google rejected the refresh token (invalid_grant): ${detail}. Sign-in is required.`
+        );
+        rejectedRefreshToken = refreshToken;
+        forgetTokenInMemory();
+        return;
+      }
+      console.error(`Token refresh attempt ${attempt} failed: ${detail}`);
+      if (isNonRetryable(error)) {
+        console.error(
+          'Google refused the refresh request. Check GOOGLE_HEALTH_CLIENT_ID / GOOGLE_HEALTH_CLIENT_SECRET match the client that issued the token.'
+        );
+        break;
+      }
+      if (attempt < REFRESH_MAX_ATTEMPTS) {
+        const delayMs = HTTP_CONFIG.RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  // The stored token is kept: a network blip must not force a new sign-in
+  console.error(
+    'Could not refresh the token right now. Keeping it and retrying on the next request.'
+  );
 }
 
 /**
- * Refreshes the access token if it has expired. Google does not return a new
- * refresh token on refresh, so the existing one is carried over.
+ * Refreshes the access token if it has expired. Parallel callers share a single
+ * refresh. Only an invalid_grant response discards the token; any other
+ * failure keeps it so a later call can try again.
  */
-async function refreshTokenIfNeeded(): Promise<void> {
+function refreshTokenIfNeeded(): Promise<void> {
   if (!tokenData || !isExpired(tokenData)) {
+    return Promise.resolve();
+  }
+  refreshInFlight ??= refreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+/**
+ * Loads the stored token into memory. Also called when a session has no token,
+ * to pick up one that another session has saved since startup.
+ */
+async function loadPersistedToken(): Promise<void> {
+  const stored = await loadTokenFromFile();
+  // A refresh may have set a newer token while we were reading the file
+  if (tokenData || !stored || !stored.access_token) return;
+  if (rejectedRefreshToken && stored.refresh_token === rejectedRefreshToken) {
     return;
   }
-
-  const refreshToken = tokenData.refresh_token;
-  if (!refreshToken) {
-    console.error('Token is expired and no refresh token is available.');
-    accessToken = null;
-    tokenData = null;
-    return;
-  }
-
-  console.error('Token is expired. Attempting to refresh...');
-  try {
-    const accessTokenObj = oauthClient.createToken(tokenData);
-    const refreshed = await accessTokenObj.refresh();
-    const refreshedData = refreshed.token as GoogleTokenData;
-    if (!refreshedData.refresh_token) {
-      refreshedData.refresh_token = refreshToken;
-    }
-    tokenData = refreshedData;
-    accessToken = refreshedData.access_token;
-    await saveTokenToFile(refreshedData);
-    console.error('Token refreshed and saved successfully.');
-  } catch (refreshError) {
-    console.error('Failed to refresh token:', refreshError);
-    accessToken = null;
-    tokenData = null;
-  }
+  tokenData = stored;
+  accessToken = stored.access_token;
 }
 
 // --- Google Authorization Flow ---
@@ -297,11 +410,13 @@ export function startAuthorizationFlow(): void {
 
       accessToken = newToken.access_token;
       tokenData = newToken;
-      await saveTokenToFile(newToken);
-      console.error('Token data has been persisted to file');
+      rejectedRefreshToken = null;
+      const saveError = await saveTokenToFile(newToken);
 
       res.send(
-        'Authorization successful! You can close this window. The MCP Server is now authenticated.'
+        saveError
+          ? `Authorization successful for this session, but the token could not be saved (${saveError}). You will have to sign in again next session. Set ${FILE_PATHS.TOKEN_PATH_ENV} to a writable file path.`
+          : 'Authorization successful! You can close this window. The MCP Server is now authenticated.'
       );
     } catch (error: unknown) {
       // Handle errors during token exchange
@@ -379,8 +494,8 @@ async function stopAuthorizationServer(): Promise<void> {
  * @returns true when a token file was deleted, false when there was none.
  */
 export async function clearStoredToken(): Promise<boolean> {
-  accessToken = null;
-  tokenData = null;
+  forgetTokenInMemory();
+  rejectedRefreshToken = null;
   try {
     await fs.unlink(TOKEN_FILE_PATH);
     console.error(`Token file deleted: ${TOKEN_FILE_PATH}`);
@@ -417,13 +532,33 @@ export async function reauthenticate(): Promise<{
  * @returns The access token string or null if not available.
  */
 export async function getAccessToken(): Promise<string | null> {
+  if (!tokenData) {
+    // Another session may have signed in and saved a token since we started
+    await loadPersistedToken();
+  }
   if (!tokenData || !accessToken) {
     console.error('No valid access token found.');
     return null;
   }
 
   await refreshTokenIfNeeded();
+  if (!tokenData || !accessToken) {
+    return null;
+  }
+  // A temporary refresh failure keeps the token but leaves it expired
+  if (isExpired(tokenData, 0)) {
+    return null;
+  }
   return accessToken;
+}
+
+/**
+ * Whether the user has to sign in: there is no stored token, or Google rejected
+ * the refresh token. False while a stored token exists but could not be
+ * refreshed yet (e.g. offline), which a later request can still recover.
+ */
+export function isAuthorizationRequired(): boolean {
+  return !tokenData;
 }
 
 /**
@@ -431,18 +566,16 @@ export async function getAccessToken(): Promise<string | null> {
  * Loads persisted token from file storage if available.
  */
 export async function initializeAuth(): Promise<void> {
-  console.error('Auth initialized. Checking for persisted token...');
+  console.error(`Auth initialized. Token file: ${TOKEN_FILE_PATH}`);
 
   try {
-    tokenData = await loadTokenFromFile();
+    await loadPersistedToken();
 
-    if (tokenData && tokenData.access_token) {
-      accessToken = tokenData.access_token;
+    if (tokenData) {
       console.error('Persisted access token loaded successfully.');
       await refreshTokenIfNeeded();
     } else {
       console.error('No valid access token found.');
-      tokenData = null;
     }
   } catch (error) {
     console.error('Error during token initialization:', error);

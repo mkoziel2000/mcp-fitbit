@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import os from 'os';
+import path from 'path';
 
 const mockReadFile = vi.fn();
 const mockWriteFile = vi.fn().mockResolvedValue(undefined);
+const mockMkdir = vi.fn().mockResolvedValue(undefined);
+const mockRename = vi.fn().mockResolvedValue(undefined);
 const mockUnlink = vi.fn().mockResolvedValue(undefined);
 const mockExistsSync = vi.fn();
 const mockRefresh = vi.fn();
@@ -27,6 +31,8 @@ vi.doMock('fs/promises', () => ({
   default: {
     readFile: mockReadFile,
     writeFile: mockWriteFile,
+    mkdir: mockMkdir,
+    rename: mockRename,
     unlink: mockUnlink,
   },
 }));
@@ -63,12 +69,54 @@ describe('auth', () => {
     for (const key of Object.keys(routes)) delete routes[key];
     process.env.GOOGLE_HEALTH_CLIENT_ID = 'id';
     process.env.GOOGLE_HEALTH_CLIENT_SECRET = 'secret';
+    delete process.env.GOOGLE_HEALTH_TOKEN_PATH;
+    mockExistsSync.mockReturnValue(false);
+    mockWriteFile.mockResolvedValue(undefined);
+    mockMkdir.mockResolvedValue(undefined);
+    mockRename.mockResolvedValue(undefined);
+    mockUnlink.mockResolvedValue(undefined);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     global.fetch = vi.fn();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  const invalidGrant = () =>
+    Object.assign(new Error('Response Error: 400 Bad Request'), {
+      data: { payload: { error: 'invalid_grant' }, res: { statusCode: 400 } },
+    });
+
+  const expiredToken = () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({
+        access_token: 'old',
+        refresh_token: 'r',
+        expires_at: past,
+      })
+    );
+  };
+
+  describe('token storage location', () => {
+    it('defaults to a per-user folder, not the install directory', async () => {
+      const auth = await import('./auth.js');
+      await auth.initializeAuth();
+      expect(mockExistsSync).toHaveBeenCalledWith(
+        path.join(os.homedir(), '.google-health-mcp', 'token.json')
+      );
+    });
+
+    it('honours GOOGLE_HEALTH_TOKEN_PATH', async () => {
+      process.env.GOOGLE_HEALTH_TOKEN_PATH = path.resolve('custom', 't.json');
+      const auth = await import('./auth.js');
+      await auth.initializeAuth();
+      expect(mockExistsSync).toHaveBeenCalledWith(
+        path.resolve('custom', 't.json')
+      );
+    });
   });
 
   it('configures the Google OAuth endpoints with body client auth', async () => {
@@ -130,19 +178,120 @@ describe('auth', () => {
     expect(saved.refresh_token).toBe('keep-me');
   });
 
-  it('clears the token when refresh fails', async () => {
-    mockExistsSync.mockReturnValue(true);
-    mockReadFile.mockResolvedValue(
-      JSON.stringify({
-        access_token: 'old',
-        refresh_token: 'r',
-        expires_at: past,
-      })
-    );
-    mockRefresh.mockRejectedValue(new Error('invalid_grant'));
+  it('writes the token atomically via a temp file and rename', async () => {
+    expiredToken();
+    mockRefresh.mockResolvedValue({
+      token: { access_token: 'new', expires_at: future },
+    });
+    const auth = await import('./auth.js');
+    await auth.initializeAuth();
+
+    const tokenPath = path.join(os.homedir(), '.google-health-mcp', 'token.json');
+    expect(mockMkdir).toHaveBeenCalledWith(path.dirname(tokenPath), {
+      recursive: true,
+    });
+    const tempPath = mockWriteFile.mock.calls.at(-1)![0] as string;
+    expect(tempPath).not.toBe(tokenPath);
+    expect(tempPath.endsWith('.tmp')).toBe(true);
+    expect(mockRename).toHaveBeenCalledWith(tempPath, tokenPath);
+  });
+
+  describe('refresh failures', () => {
+    it('discards the token and requires sign-in on invalid_grant', async () => {
+      expiredToken();
+      mockRefresh.mockRejectedValue(invalidGrant());
+      const auth = await import('./auth.js');
+      await auth.initializeAuth();
+
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+      expect(auth.isAuthorizationRequired()).toBe(true);
+      expect(await auth.getAccessToken()).toBeNull();
+      // The dead refresh token is still on disk but must not be retried
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the token and does not require sign-in on a temporary failure', async () => {
+      expiredToken();
+      mockRefresh.mockRejectedValue(
+        new Error('getaddrinfo ENOTFOUND oauth2.googleapis.com')
+      );
+      const auth = await import('./auth.js');
+      vi.useFakeTimers();
+      const init = auth.initializeAuth();
+      await vi.advanceTimersByTimeAsync(5000);
+      await init;
+
+      expect(mockRefresh).toHaveBeenCalledTimes(3);
+      expect(auth.isAuthorizationRequired()).toBe(false);
+      expect(mockWriteFile).not.toHaveBeenCalled();
+
+      // The network is back: the next request recovers without a sign-in
+      mockRefresh.mockResolvedValue({
+        token: { access_token: 'new', expires_at: future },
+      });
+      expect(await auth.getAccessToken()).toBe('new');
+    });
+
+    it('does not retry a rejected request (e.g. wrong client ID) and keeps the token', async () => {
+      expiredToken();
+      mockRefresh.mockRejectedValue(
+        Object.assign(new Error('Response Error: 400 Bad Request'), {
+          data: {
+            payload: {
+              error: 'invalid_request',
+              error_description: 'Could not determine client ID from request.',
+            },
+            res: { statusCode: 400 },
+          },
+        })
+      );
+      const auth = await import('./auth.js');
+      await auth.initializeAuth();
+
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+      expect(auth.isAuthorizationRequired()).toBe(false);
+    });
+
+    it('logs the error body Google returned', async () => {
+      expiredToken();
+      mockRefresh.mockRejectedValue(invalidGrant());
+      const auth = await import('./auth.js');
+      await auth.initializeAuth();
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining('"error":"invalid_grant"')
+      );
+    });
+  });
+
+  it('shares one refresh between parallel callers', async () => {
+    expiredToken();
+    mockRefresh.mockResolvedValue({
+      token: { access_token: 'new', expires_at: future },
+    });
+    const auth = await import('./auth.js');
+    const results = await Promise.all([
+      auth.getAccessToken(),
+      auth.getAccessToken(),
+      auth.getAccessToken(),
+    ]);
+    expect(results).toEqual(['new', 'new', 'new']);
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('picks up a token another session saved after startup', async () => {
     const auth = await import('./auth.js');
     await auth.initializeAuth();
     expect(await auth.getAccessToken()).toBeNull();
+
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({
+        access_token: 'from-other-session',
+        refresh_token: 'r',
+        expires_at: future,
+      })
+    );
+    expect(await auth.getAccessToken()).toBe('from-other-session');
   });
 
   it('clears an expired token that has no refresh token', async () => {
@@ -171,9 +320,13 @@ describe('auth', () => {
 
     it('clears memory and the token file, then starts a new flow', async () => {
       const auth = await loadToken();
+      // Deleting the file makes it really disappear for later reads
+      mockUnlink.mockImplementationOnce(async () => {
+        mockExistsSync.mockReturnValue(false);
+      });
       const result = await auth.reauthenticate();
 
-      expect(mockUnlink).toHaveBeenCalledWith(expect.stringContaining('.google-health-token.json'));
+      expect(mockUnlink).toHaveBeenCalledWith(expect.stringContaining('token.json'));
       expect(await auth.getAccessToken()).toBeNull();
       expect(mockListen).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ tokenFileCleared: true, authUrl: 'http://localhost:3000/auth' });
@@ -301,6 +454,35 @@ describe('auth', () => {
       expect(res.send).toHaveBeenCalledWith(
         expect.stringContaining('successful')
       );
+    });
+
+    it('tells the user when the token could not be saved', async () => {
+      const auth = await startFlow();
+      const state = await stateFrom();
+      mockGetToken.mockResolvedValue({
+        token: { access_token: 'tok', refresh_token: 'ref', expires_at: future },
+      });
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        status: 200,
+      });
+      mockRename.mockRejectedValueOnce(
+        Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+      );
+
+      const res = mockResponse();
+      await routes['/callback']({ query: { code: 'abc', state } }, res);
+
+      // Still signed in for this session, but the user is warned
+      expect(await auth.getAccessToken()).toBe('tok');
+      expect(res.send).toHaveBeenCalledWith(
+        expect.stringContaining('could not be saved')
+      );
+      expect(res.send).toHaveBeenCalledWith(
+        expect.stringContaining('GOOGLE_HEALTH_TOKEN_PATH')
+      );
+      // The temp file is cleaned up
+      expect(mockUnlink).toHaveBeenCalledWith(expect.stringMatching(/\.tmp$/));
     });
 
     it('does not persist the token when the account is not linked', async () => {

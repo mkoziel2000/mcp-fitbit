@@ -23,7 +23,8 @@ the Google Health API and returns its raw JSON.
 ## ⚠️ Breaking changes from the Fitbit version
 
 - You must create a **Google Cloud** OAuth client (see below) and re-authorize. Old Fitbit tokens cannot be reused.
-- Credentials are now `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET`.- The token file is now `.google-health-token.json` (the old `.fitbit-token.json` is ignored and can be deleted).
+- Credentials are now `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET`.
+- The token is now stored per user at `~/.google-health-mcp/token.json` (see [Token storage](#token-storage)). The old `.fitbit-token.json` and any `.google-health-token.json` inside the package folder are ignored and can be deleted; you will sign in once after upgrading.
 - Responses are the Google Health API's JSON, not Fitbit's. Fitbit-style `period` (`1d`, `7d`, ...) parameters are gone: tools take explicit start/end times, as the API does.
 - `get_activity_goals` was removed: the Google Health API has no goals endpoint.
 - New tools: `get_identity`, `get_settings`, `list_paired_devices`, `list_data_points`, `reconcile_data_points`.
@@ -107,6 +108,17 @@ Config file locations:
 3. The server verifies your Google Health link (`/v4/users/me/identity`) and saves the token
 4. Your AI can now access your data. Access tokens refresh automatically.
 
+### Token storage
+
+The token is saved to `~/.google-health-mcp/token.json` (on Windows `C:\Users\<you>\.google-health-mcp\token.json`),
+outside the install folder, so it survives upgrades and works when the global npm folder is read-only. New chat
+sessions reuse it and refresh the access token silently; you only sign in again if Google rejects the refresh token
+(for example after the 7-day Testing-mode limit, or if you revoke access).
+
+Set `GOOGLE_HEALTH_TOKEN_PATH` (in the `env` block or `.env`) to store it elsewhere. If the token cannot be saved, the
+browser page after sign-in says so, and the server log (stderr) shows the path and the reason. A temporary failure to
+refresh (for example no network) keeps the saved token and does not open a sign-in window.
+
 ## Available Tools
 
 Time parameters follow the API: ranges are **start inclusive, end exclusive**. Samples (`get_weight`, `get_heart_rate`)
@@ -130,7 +142,7 @@ List tools accept `pageSize` and `pageToken` (use `nextPageToken` from the respo
 | `get_identity` | `users/me/identity` | none |
 | `get_settings` | `users/me/settings` | none |
 | `list_paired_devices` | `users/me/pairedDevices` | none |
-| `reauthenticate` | not an API call: deletes the local tokens (memory + `.google-health-token.json`) and opens a new Google sign-in; new tokens are saved on approval, no restart needed. Cancels a pending sign-in. Confirm with `get_identity` | none |
+| `reauthenticate` | not an API call: deletes the local tokens (memory + the token file, see [Token storage](#token-storage)) and opens a new Google sign-in; new tokens are saved on approval, no restart needed. Cancels a pending sign-in. Confirm with `get_identity` | none |
 | `list_data_points` | any of the 38 data types | `dataType`, optional raw `filter` |
 | `reconcile_data_points` | `dataPoints:reconcile` for any data type | `dataType`, optional `filter`, `dataSourceFamily` |
 

@@ -58,7 +58,7 @@ GOOGLE_HEALTH_CLIENT_SECRET=your_client_secret
 ## API Notes
 - Single base URL: `https://health.googleapis.com/v4` (JSON over REST)
 - All dates in YYYY-MM-DD format
-- Token persisted to `.google-health-token.json`; refresh token is only issued with `access_type=offline` + `prompt=consent` and is not returned on refresh
+- Token persisted to `~/.google-health-mcp/token.json` (override: `GOOGLE_HEALTH_TOKEN_PATH`); refresh token is only issued with `access_type=offline` + `prompt=consent` and is not returned on refresh
 - OAuth: Google OAuth 2.0 (authorize `https://accounts.google.com/o/oauth2/v2/auth`, token `https://oauth2.googleapis.com/token`), scopes `https://www.googleapis.com/auth/googlehealth.{activity_and_fitness,health_metrics_and_measurements,sleep,nutrition,profile,settings}.readonly`
 - Testing-mode refresh tokens expire after 7 days; ranges are start-inclusive, end-exclusive; list endpoints paginate with `nextPageToken`
 
